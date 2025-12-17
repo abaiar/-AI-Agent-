@@ -58,7 +58,7 @@
 **克隆项目**
 
 ```bash
-git clone [https://github.com/abaiar/-AI-Agent-.git](https://github.com/abaiar/-AI-Agent-.git)
+git clone https://github.com/abaiar/-AI-Agent-.git
 cd -AI-Agent-
 
 ```
