@@ -59,5 +59,5 @@
 **克隆项目**
 
 ```bash
-git clone [https://github.com/abair/cloud-mist-guide.git](https://github.com/abair/cloud-mist-guide.git)
+git clone https://github.com/abaiar/-AI-Agent-.git
 cd cloud-mist-guide
