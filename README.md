@@ -3,7 +3,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![Vue](https://img.shields.io/badge/Vue.js-3.x-green.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.95+-teal.svg)
-![LangChain](https://img.shields.io/badge/LangChain-0.3+-orange.svg)
+![LangChain](https://img.shields.io/badge/LangChain-1.0+-orange.svg)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey.svg)
 
 > **烟台大学 计245班数据结构课程设计作品**
