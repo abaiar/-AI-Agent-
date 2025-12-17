@@ -66,20 +66,18 @@ cd -AI-Agent-
 **🔧 后端设置 (Backend Setup)**
 
 ```bash
-# 1. 进入后端目录(假设在根目录)
+# 1. 进入后端目录(假设在项目根目录)
 
-# 2. 创建虚拟环境 (推荐)
-python -m venv venv
+# 2. 使用Anaconda创建虚拟环境 (推荐)
+conda create -n AI_Agent python=3.10
 
-# Windows 激活:
-venv\Scripts\activate
-# Mac/Linux 激活:
-# source venv/bin/activate
+# 3. 激活AI_Agent环境
+conda activate AI_Agent
 
-# 3. 安装依赖
-pip install fastapi uvicorn langchain langchain-community dashscope fastmcp
+# 4. 安装依赖
+pip install -r requirements.txt
 
-# 4. 设置 API KEY (Windows PowerShell 示例)
+# 5. 设置 API KEY (Windows PowerShell 示例)
 $env:DASHSCOPE_API_KEY="你的_sk_密钥"
 # 或者在代码中设置 os.environ["DASHSCOPE_API_KEY"] = "..."
 
