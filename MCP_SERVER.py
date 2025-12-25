@@ -1,7 +1,9 @@
 import heapq
 import json
+import random
 from fastmcp import FastMCP
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Tuple
+
 mcp = FastMCP("ScenicArea_Guide")
 
 # --- 1. 定义节点（名字、坐标 x,y、介绍）---
@@ -98,43 +100,33 @@ GRAPH_EDGES = [
     ("S30", "S22", 500), # 山顶也有分店(假设路径) -> 这里改为连接S22
 ]
 
-# 转换为邻接表格式以便 Dijkstra 使用
 GRAPH = {code: {} for code in SPOTS_INFO}
 for u, v, w in GRAPH_EDGES:
-    # 确保边的两个节点都存在于SPOTS_INFO中，防止手误
     if u in GRAPH and v in GRAPH:
         GRAPH[u][v] = w
-        GRAPH[v][u] = w 
-    else:
-        print(f"Warning: 忽略无效边 {u}-{v}")
+        GRAPH[v][u] = w
 
 def _get_code(name: str) -> Optional[str]:
-    # 支持模糊搜索
     for code, info in SPOTS_INFO.items():
         if name == info['name'] or name in info['name'] or info['name'] in name: 
             return code
     return None
 
-# --- 工具定义 ---
+# --- [新增] 内部算法函数 (复用逻辑) ---
 
-@mcp.tool()
-def find_shortest_path(start_name: str, end_name: str) -> str:
-    """计算景区内两点间的最短路径，返回JSON结构"""
-    start = _get_code(start_name)
-    end = _get_code(end_name)
-    
-    if not start or not end:
-        return json.dumps({"error": f"景点无法识别: {start_name} 或 {end_name}"}, ensure_ascii=False)
+def _dijkstra(start_code: str, end_code: str) -> Tuple[float, List[str]]:
+    if start_code not in GRAPH or end_code not in GRAPH:
+        return float('inf'), []
 
-    pq = [(0, start)]
+    pq = [(0, start_code)]
     distances = {node: float('inf') for node in GRAPH}
-    distances[start] = 0
+    distances[start_code] = 0
     predecessors = {node: None for node in GRAPH}
 
     while pq:
         d, u = heapq.heappop(pq)
         if d > distances[u]: continue
-        if u == end: break
+        if u == end_code: break
 
         for v, weight in GRAPH[u].items():
             if distances[u] + weight < distances[v]:
@@ -142,14 +134,32 @@ def find_shortest_path(start_name: str, end_name: str) -> str:
                 predecessors[v] = u
                 heapq.heappush(pq, (distances[v], v))
 
-    if distances[end] == float('inf'):
-        return json.dumps({"found": False, "msg": "两点之间不可达"}, ensure_ascii=False)
+    if distances[end_code] == float('inf'):
+        return float('inf'), []
 
     path = []
-    curr = end
+    curr = end_code
     while curr:
         path.insert(0, curr)
         curr = predecessors[curr]
+    
+    return distances[end_code], path
+
+# --- 3. MCP 工具定义 ---
+
+@mcp.tool()
+def find_shortest_path(start_name: str, end_name: str) -> str:
+    """计算景区内两点间的最短路径"""
+    start = _get_code(start_name)
+    end = _get_code(end_name)
+    
+    if not start or not end:
+        return json.dumps({"error": f"景点无法识别: {start_name} 或 {end_name}"}, ensure_ascii=False)
+
+    dist, path = _dijkstra(start, end)
+
+    if dist == float('inf'):
+        return json.dumps({"found": False, "msg": "两点之间不可达"}, ensure_ascii=False)
     
     path_names = [SPOTS_INFO[n]['name'] for n in path]
     
@@ -157,11 +167,146 @@ def find_shortest_path(start_name: str, end_name: str) -> str:
         "found": True,
         "start": SPOTS_INFO[start]['name'],
         "end": SPOTS_INFO[end]['name'],
-        "total_distance": distances[end],
+        "total_distance": dist,
         "path_codes": path,
         "path_names": path_names,
-        "description": f"从【{SPOTS_INFO[start]['name']}】到【{SPOTS_INFO[end]['name']}】全程{distances[end]}米。\n推荐路线：{' -> '.join(path_names)}"
+        "description": f"从【{SPOTS_INFO[start]['name']}】到【{SPOTS_INFO[end]['name']}】全程{dist}米。\n推荐路线：{' -> '.join(path_names)}"
     }
+    return json.dumps(result, ensure_ascii=False)
+
+@mcp.tool()
+def generate_all_spots_tour(start_node_name: str = "景区南大门") -> str:
+    """
+    生成一条能够涵盖所有景点的随机游览路线（特种兵打卡模式）。
+    算法：基于贪心策略的最近邻算法，保证连通性。
+    """
+    start_code = _get_code(start_node_name)
+    if not start_code: 
+        start_code = "S01" # 默认南大门
+
+    unvisited = set(SPOTS_INFO.keys())
+    if start_code in unvisited:
+        unvisited.remove(start_code)
+    
+    current_node = start_code
+    full_path_codes = [current_node]
+    total_distance = 0
+    
+    # 贪心循环：每次找离当前节点最近的那个未访问节点
+    while unvisited:
+        nearest_node = None
+        min_dist = float('inf')
+        segment_path = []
+
+        # 在未访问集合中寻找最近邻 (计算当前节点到所有未访问节点的真实路径距离)
+        # 为了性能，这里可以简化，但为了准确，我们调用多次Dijkstra
+        # 如果节点太多，可以只搜索BFS范围内的邻居，这里为了演示效果，搜索全部剩余节点
+        
+        # 优化：优先检查直接相邻的节点是否存在于未访问集合中
+        neighbors = [n for n in GRAPH[current_node].keys() if n in unvisited]
+        if neighbors:
+             # 如果有直接邻居没去过，随机选一个（增加随机性），或者选最近的
+             # 这里增加一点随机性，让每次生成的路线略有不同
+             target = random.choice(neighbors)
+             d, p = _dijkstra(current_node, target)
+             nearest_node = target
+             min_dist = d
+             segment_path = p
+        else:
+            # 如果周围都去过了，必须进行全图搜索最近的“孤岛”
+            # 这里简单处理：遍历剩余所有节点找最近的
+            for candidate in unvisited:
+                d, p = _dijkstra(current_node, candidate)
+                if d < min_dist:
+                    min_dist = d
+                    nearest_node = candidate
+                    segment_path = p
+        
+        if nearest_node and segment_path:
+            # 更新状态
+            # 注意：segment_path[0] 是 current_node，由于 full_path 已经有了，所以从 [1:] 开始加
+            full_path_codes.extend(segment_path[1:])
+            total_distance += min_dist
+            current_node = nearest_node
+            
+            # 标记沿途经过的所有节点为已访问 (防止重复走回头路去特意打卡)
+            for p_node in segment_path:
+                if p_node in unvisited:
+                    unvisited.remove(p_node)
+        else:
+            break # 图可能不连通
+
+    path_names = [SPOTS_INFO[n]['name'] for n in full_path_codes]
+    
+    result = {
+        "type": "full_tour",
+        "description": f"为您生成了一条全景点打卡路线！\n全程约 {total_distance} 米，涵盖了绝大多数景点。\n这是一场体力的考验，建议携带充足的水和食物！",
+        "path_codes": full_path_codes,
+        "path_names": path_names
+    }
+    return json.dumps(result, ensure_ascii=False)
+
+@mcp.tool()
+def recommend_themed_route(theme: str) -> str:
+    """
+    根据用户需求生成推荐路线。
+    支持的主题：
+    1. 'leisure' 或 '休闲': 适合老人小孩，主要在湖边和索道，不爬陡坡。
+    2. 'adventure' 或 '探险': 走好汉坡、一线天、玻璃栈道，挑战体力。
+    3. 'culture' 或 '人文': 侧重古寺、藏经阁、祈福台、钟楼。
+    4. 'nature' 或 '山水': 侧重百鸟林、瀑布、杜鹃园、云海。
+    """
+    
+    # 预设的关键打卡点 (Key Checkpoints)
+    presets = {
+        "leisure": ["S01", "S02", "S05", "S06", "S08", "S15", "S22", "S23"], # 门-车-湖-亭-索道-云
+        "adventure": ["S04", "S11", "S13", "S12", "S14", "S17", "S25", "S28"], # 北门-鸟-瀑-一线天-好汉-寺-玻璃-悬崖
+        "culture": ["S01", "S02", "S17", "S19", "S20", "S18", "S21"], # 门-寺-钟-台-阁-素斋
+        "nature": ["S03", "S11", "S13", "S27", "S23", "S24", "S29"], # 鸟-瀑-杜鹃-云-摘星-露营
+    }
+
+    # 简单的关键词匹配
+    selected_key = "leisure" # 默认
+    if "探险" in theme or "挑战" in theme or "爬山" in theme:
+        selected_key = "adventure"
+    elif "人文" in theme or "历史" in theme or "拜佛" in theme or "寺" in theme:
+        selected_key = "culture"
+    elif "山水" in theme or "自然" in theme or "风景" in theme:
+        selected_key = "nature"
+    
+    checkpoints = presets[selected_key]
+    
+    # 将关键点串联起来
+    full_path = []
+    total_dist = 0
+    
+    for i in range(len(checkpoints) - 1):
+        u, v = checkpoints[i], checkpoints[i+1]
+        dist, path = _dijkstra(u, v)
+        if i == 0:
+            full_path.extend(path)
+        else:
+            full_path.extend(path[1:]) # 避免重复添加连接点
+        total_dist += dist
+
+    path_names = [SPOTS_INFO[n]['name'] for n in full_path]
+    
+    reasons = {
+        "leisure": "这条路线主打【轻松休闲】，主要利用观光车和索道，避免了陡峭的爬坡，非常适合家庭出游、携带老人或儿童的游客。您可以尽情享受碧波湖的温柔与云端漫步的惬意。",
+        "adventure": "这条路线主打【硬核挑战】，涵盖了百鸟林、一线天、好汉坡和玻璃栈道等险峻景点。这是对体力与胆量的双重考验，适合热爱户外运动和寻求刺激的年轻游客。",
+        "culture": "这条路线主打【古刹祈福】，深入云雾山的核心文化区。您将游览古寺、敲响平安钟、在藏经阁感受书香，并在素斋馆品尝美食，是一次净化心灵的旅程。",
+        "nature": "这条路线主打【自然风光】，避开了人造设施较多的区域，带您深入森林、瀑布和高山花海，最后直达摘星峰顶，是摄影爱好者和自然观察者的最佳选择。"
+    }
+
+    result = {
+        "type": "themed_route",
+        "theme": selected_key,
+        "reason": reasons[selected_key],
+        "description": f"为您推荐【{selected_key}】主题路线。\n推荐理由：{reasons[selected_key]}\n全程距离：{total_dist}米。",
+        "path_codes": full_path,
+        "path_names": path_names
+    }
+    
     return json.dumps(result, ensure_ascii=False)
 
 @mcp.tool()
