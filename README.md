@@ -112,6 +112,7 @@ python main.py
 **启动前端界面**
 
 ```bash
+# 确保在项目前端目录
 npm run dev
 # 访问 http://localhost:5173 (具体端口看控制台输出)
 
